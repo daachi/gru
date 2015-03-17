@@ -5,41 +5,48 @@ module Gru
     class RedisAdapter
       attr_reader :client
 
-      def initialize(client)
+      def initialize(client,global_config=nil)
         @client = client
+        @global_config = Array(global_config)
       end
 
-      def provision_workers(workers)
-        workers.each do |worker|
-          provision_worker(worker)
-          set_minimum_workers_count(worker)
-          set_maximum_workers_count(worker)
-        end
+      def process_workers(workers)
+        register_workers(workers)
+        set_worker_counts(workers)
+        set_global_worker_counts(workers)
       end
 
-      def start_workers; end
+      def provision_workers
+        workers = get_host_workers
+        reserve_workers(workers)
+      end
+
       def expired_workers; end
 
       private
 
-      def provision_worker(worker)
-        @client.hsetnx(host_key,worker['name'],0)
+      def register_workers(workers)
+        workers.each {|worker| register_worker(worker) }
       end
 
-      def set_minimum_workers_count(worker)
-        @client.hsetnx(host_key,"#{worker['name']}:minimum",worker['min_workers'])
+      def set_worker_counts(workers)
+        workers.each {|worker| set_worker_count(worker) }
       end
 
-      def set_maximum_workers_count(worker)
-        @client.hsetnx(host_key,"#{worker['name']}:maximum",worker['max_workers'])
+      def set_global_worker_counts(workers)
+        workers.each {|worker| set_global_worker_count(worker) }
       end
 
-      def set_global_minimum_worker_count(worker,minimum)
-        @client.hsetnx(global_key,"#{worker['name']}:minimum",minimum)
+      def register_worker(worker)
+        send_message(:hsetnx,"#{host_key}:workers_running",worker['name'],0)
       end
 
-      def set_global_maximum_worker_count(worker,maximum)
-        @client.hsetnx(global_key,"#{worker['name']}:maximum",maximum)
+      def set_worker_count(worker)
+        send_message(:hsetnx,"#{host_key}:max_workers",worker['name'],worker['max_workers'])
+      end
+
+      def set_global_worker_count(worker)
+        send_message(:hsetnx,"#{global_key}:max_workers",worker['name'],worker['max_workers'])
       end
 
       def workers
@@ -63,8 +70,46 @@ module Gru
         "GRU:#{hostname}"
       end
 
+      def reserve_workers(workers)
+        # Need a client.multi statement here to avoid race conditions?
+        reserved_workers = []
+        workers.each do |worker|
+          worker['max_workers'].times do |index|
+            if current_worker_count(worker) < max_worker_count(worker)
+              send_message(:hincr,"#{host_key}:workers_running", worker['name'])
+              reserved_workers << worker['name']
+            end
+          end
+        end
+        reserved_workers
+      end
+
+      def get_host_workers
+        send_message(:hgetall,"#{host_key}:workers_running")
+      end
+
+      def get_host_worker_counts
+        send_message(:hgetall,"#{host_key}:max_workers")
+      end
+
+      def current_worker_count(worker)
+        send_message(:hget,"#{host_key}:workers_running",worker['name']).to_i
+      end
+
+      def max_worker_count(worker)
+        send_message(:hget,"#{host_key}:max_workers",worker['name']).to_i
+      end
+
+      def get_global_worker_count(worker)
+        send_message(:hget,"#{global_key}:workers_running",worker['name'])
+      end
+
       def hostname
-        Socket.gethostname
+        @hostname ||= Socket.gethostname
+      end
+
+      def send_message(action,*args)
+        @client.send(action,*args)
       end
     end
   end
