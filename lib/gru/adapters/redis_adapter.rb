@@ -5,54 +5,156 @@ module Gru
     class RedisAdapter
       attr_reader :client
 
-      def initialize(client)
+      def initialize(client,global_config=nil)
         @client = client
+        @global_config = global_config
       end
 
-      def provision_workers(workers)
-        workers.each do |worker|
-          provision_worker(worker)
-          set_minimum_workers_count(worker)
-          set_maximum_workers_count(worker)
+      def process_workers(workers)
+        register_workers(workers)
+        set_max_worker_counts(workers)
+        register_global_workers(@global_config || workers)
+        set_max_global_worker_counts(@global_config || workers)
+      end
+
+      def provision_workers
+        available = {}
+        workers = max_host_workers
+        workers.each do |worker, count|
+          i = 0
+          Integer(count).times do
+            if reserve_worker?(worker)
+              i += 1 if reserve_worker(worker)
+            end
+          end
+          available[worker] = i
+        end
+        available
+      end
+
+      def expire_workers
+        removable = {}
+        workers = max_host_workers
+        workers.each do |worker, count|
+          i = 0
+          Integer(count).to_i.times do
+            if expire_worker?(worker)
+              i -= 1 if expire_worker(worker)
+            end
+          end
+          removable[worker] = i
+        end
+        removable
+      end
+
+      def release_workers
+        workers = max_host_workers
+        workers.keys.each do |worker|
+          host_running_count = local_running_count(worker)
+          host_running_count.times do
+            send_message(:hincrby, global_workers_running_key,worker,-1)
+            send_message(:hincrby, host_workers_running_key,worker,-1)
+          end
         end
       end
 
-      def start_workers; end
-      def expired_workers; end
-
       private
 
-      def provision_worker(worker)
-        @client.hsetnx(host_key,worker['name'],0)
+      def register_workers(workers)
+        workers.each {|worker, count| register_worker(worker,0) }
       end
 
-      def set_minimum_workers_count(worker)
-        @client.hsetnx(host_key,"#{worker['name']}:minimum",worker['min_workers'])
+      def register_global_workers(workers)
+        workers.each {|worker, count| register_global_worker(worker,0) }
       end
 
-      def set_maximum_workers_count(worker)
-        @client.hsetnx(host_key,"#{worker['name']}:maximum",worker['max_workers'])
+      def set_max_worker_counts(workers)
+        workers.each_pair {|worker,count| set_max_worker_count(worker,count) }
       end
 
-      def set_global_minimum_worker_count(worker,minimum)
-        @client.hsetnx(global_key,"#{worker['name']}:minimum",minimum)
+      def set_max_global_worker_counts(workers)
+        workers.each_pair {|worker,count| set_max_global_worker_count(worker,count) }
       end
 
-      def set_global_maximum_worker_count(worker,maximum)
-        @client.hsetnx(global_key,"#{worker['name']}:maximum",maximum)
+      def register_worker(worker,count)
+        send_message(:hsetnx,"#{host_key}:workers_running",worker,count)
       end
 
-      def workers
-        # SADD workers to set
-        # GET SET for all workers
-        # LOOP through workers
-        # for each worker get min and max count
-        # for each worker get global min and max count
-        # only use max count
-        # if max count = -1 use global max
-        # if max count = 0 then 0 workers
-        # else incr worker count until <= local max and <= global max
-        # next worker
+      def register_global_worker(worker,count)
+        send_message(:hsetnx,"#{global_key}:workers_running",worker,count)
+      end
+
+      def set_max_worker_count(worker,count)
+        send_message(:hsetnx,"#{host_key}:max_workers",worker,count)
+      end
+
+      def set_max_global_worker_count(worker,count)
+        send_message(:hsetnx,"#{global_key}:max_workers",worker,count)
+      end
+
+      def reserve_worker(worker)
+        lock_key = "GRU:#{worker}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          send_message(:hincrby,host_workers_running_key,worker,1)
+          send_message(:hincrby,global_workers_running_key,worker,1)
+          send_message(:del,lock_key)
+          return true
+        end
+        false
+      end
+
+      def expire_worker(worker)
+        lock_key = "GRU:#{worker}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          send_message(:hincrby,host_workers_running_key,worker,-1)
+          send_message(:hincrby,global_workers_running_key,worker,-1)
+          send_message(:del,lock_key)
+          return true
+        end
+        false
+      end
+
+      def max_host_workers
+        send_message(:hgetall,host_max_worker_key)
+      end
+
+      def reserve_worker?(worker)
+        host_running,global_running,host_max,global_max = worker_counts(worker)
+        host_running.to_i < host_max.to_i && global_running.to_i < global_max.to_i
+      end
+
+      def expire_worker?(worker)
+        host_running,global_running,host_max,global_max = worker_counts(worker)
+        (host_running.to_i > host_max.to_i || global_running.to_i > global_max.to_i) && (host_running.to_i >= 0)
+      end
+
+      def worker_counts(worker)
+        @client.multi do |multi|
+          multi.hget(host_workers_running_key,worker)
+          multi.hget(global_workers_running_key,worker)
+          multi.hget(host_max_worker_key,worker)
+          multi.hget(global_max_worker_key,worker)
+        end
+      end
+
+      def local_running_count(worker)
+        send_message(:hget,host_workers_running_key,worker).to_i
+      end
+
+      def host_max_worker_key
+        "#{host_key}:max_workers"
+      end
+
+      def host_workers_running_key
+        "#{host_key}:workers_running"
+      end
+
+      def global_max_worker_key
+        "#{global_key}:max_workers"
+      end
+
+      def global_workers_running_key
+        "#{global_key}:workers_running"
       end
 
       def global_key
@@ -64,8 +166,13 @@ module Gru
       end
 
       def hostname
-        Socket.gethostname
+        @hostname ||= Socket.gethostname
       end
+
+      def send_message(action,*args)
+        @client.send(action,*args)
+      end
+
     end
   end
 end

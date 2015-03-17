@@ -2,16 +2,16 @@ require 'rspec'
 require './lib/gru'
 
 describe Gru::WorkerManager do
-  let (:client) {
-    double("client")
+  let (:adapter) {
+    double("adapter")
   }
 
   let(:manager) {
-    Gru::WorkerManager.new(client, workers)
+    Gru::WorkerManager.new(adapter, workers)
   }
 
   let(:workers) {
-    []
+    {}
   }
 
   context "When initialized" do
@@ -19,27 +19,28 @@ describe Gru::WorkerManager do
       expect(manager.workers).not_to be_nil
     end
 
-    it "has a client instance" do
+    it "has an adapter instance" do
       expect(manager.adapter).not_to be_nil
     end
   end
 
-  context "Creating workers" do
+  context "Creating Worker Queues" do
     it "Creates workers" do
-      expect(client).to receive(:provision_workers).with(workers).and_return(true)
-      manager.create_worker_queues
+      expect(adapter).to receive(:process_workers).with(workers).and_return(true)
+      manager.register_worker_queues
     end
   end
 
-  context "Adjusting worker counts" do
+  context "Finding available or removeable workers" do
     it "determines new workers to create" do
-      expect(client).to receive(:new_workers).and_return(instance_of(Array))
-      manager.workers_to_create
+      expect(adapter).to receive(:provision_workers).and_return({})
+      expect(adapter).to receive(:expire_workers).and_return({})
+      manager.adjust_workers
     end
 
     it "determines workers to expire" do
-      expect(client).to receive(:expired_workers).and_return(instance_of(Array))
-      manager.workers_to_delete
+      expect(adapter).to receive(:expire_workers).and_return(instance_of(Array))
+      manager.expire_workers
     end
   end
 end
