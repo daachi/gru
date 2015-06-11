@@ -7,59 +7,154 @@ module Gru
 
       def initialize(client,global_config=nil)
         @client = client
-        @global_config = Array(global_config)
+        @global_config = global_config
       end
 
       def process_workers(workers)
         register_workers(workers)
-        set_worker_counts(workers)
-        set_global_worker_counts(workers)
+        set_max_worker_counts(workers)
+        register_global_workers(@global_config || workers)
+        set_max_global_worker_counts(@global_config || workers)
       end
 
       def provision_workers
-        workers = get_host_workers
-        reserve_workers(workers)
+        available = {}
+        workers = max_host_workers
+        workers.each do |worker, count|
+          i = 0
+          Integer(count).times do
+            if reserve_worker?(worker)
+              i += 1 if reserve_worker(worker)
+            end
+          end
+          available[worker] = i
+        end
+        available
       end
 
-      def expired_workers; end
+      def expire_workers
+        removable = {}
+        workers = max_host_workers
+        workers.each do |worker, count|
+          i = 0
+          Integer(count).to_i.times do
+            if expire_worker?(worker)
+              i -= 1 if expire_worker(worker)
+            end
+          end
+          removable[worker] = i
+        end
+        removable
+      end
+
+      def release_workers
+        workers = max_host_workers
+        workers.keys.each do |worker|
+          host_running_count = local_running_count(worker)
+          host_running_count.times do
+            send_message(:hincrby, global_workers_running_key,worker,-1)
+            send_message(:hincrby, host_workers_running_key,worker,-1)
+          end
+        end
+      end
 
       private
 
       def register_workers(workers)
-        workers.each {|worker| register_worker(worker) }
+        workers.each {|worker, count| register_worker(worker,0) }
       end
 
-      def set_worker_counts(workers)
-        workers.each {|worker| set_worker_count(worker) }
+      def register_global_workers(workers)
+        workers.each {|worker, count| register_global_worker(worker,0) }
       end
 
-      def set_global_worker_counts(workers)
-        workers.each {|worker| set_global_worker_count(worker) }
+      def set_max_worker_counts(workers)
+        workers.each_pair {|worker,count| set_max_worker_count(worker,count) }
       end
 
-      def register_worker(worker)
-        send_message(:hsetnx,"#{host_key}:workers_running",worker['name'],0)
+      def set_max_global_worker_counts(workers)
+        workers.each_pair {|worker,count| set_max_global_worker_count(worker,count) }
       end
 
-      def set_worker_count(worker)
-        send_message(:hsetnx,"#{host_key}:max_workers",worker['name'],worker['max_workers'])
+      def register_worker(worker,count)
+        send_message(:hsetnx,"#{host_key}:workers_running",worker,count)
       end
 
-      def set_global_worker_count(worker)
-        send_message(:hsetnx,"#{global_key}:max_workers",worker['name'],worker['max_workers'])
+      def register_global_worker(worker,count)
+        send_message(:hsetnx,"#{global_key}:workers_running",worker,count)
       end
 
-      def workers
-        # SADD workers to set
-        # GET SET for all workers
-        # LOOP through workers
-        # for each worker get min and max count
-        # for each worker get global min and max count
-        # only use max count
-        # if max count = -1 use global max
-        # if max count = 0 then 0 workers
-        # else incr worker count until <= local max and <= global max
-        # next worker
+      def set_max_worker_count(worker,count)
+        send_message(:hsetnx,"#{host_key}:max_workers",worker,count)
+      end
+
+      def set_max_global_worker_count(worker,count)
+        send_message(:hsetnx,"#{global_key}:max_workers",worker,count)
+      end
+
+      def reserve_worker(worker)
+        lock_key = "GRU:#{worker}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          send_message(:hincrby,host_workers_running_key,worker,1)
+          send_message(:hincrby,global_workers_running_key,worker,1)
+          send_message(:del,lock_key)
+          return true
+        end
+        false
+      end
+
+      def expire_worker(worker)
+        lock_key = "GRU:#{worker}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          send_message(:hincrby,host_workers_running_key,worker,-1)
+          send_message(:hincrby,global_workers_running_key,worker,-1)
+          send_message(:del,lock_key)
+          return true
+        end
+        false
+      end
+
+      def max_host_workers
+        send_message(:hgetall,host_max_worker_key)
+      end
+
+      def reserve_worker?(worker)
+        host_running,global_running,host_max,global_max = worker_counts(worker)
+        host_running.to_i < host_max.to_i && global_running.to_i < global_max.to_i
+      end
+
+      def expire_worker?(worker)
+        host_running,global_running,host_max,global_max = worker_counts(worker)
+        (host_running.to_i > host_max.to_i || global_running.to_i > global_max.to_i) && (host_running.to_i >= 0)
+      end
+
+      def worker_counts(worker)
+        @client.multi do |multi|
+          multi.hget(host_workers_running_key,worker)
+          multi.hget(global_workers_running_key,worker)
+          multi.hget(host_max_worker_key,worker)
+          multi.hget(global_max_worker_key,worker)
+        end
+      end
+
+      def local_running_count(worker)
+        send_message(:hget,host_workers_running_key,worker).to_i
+      end
+
+      def host_max_worker_key
+        "#{host_key}:max_workers"
+      end
+
+      def host_workers_running_key
+        "#{host_key}:workers_running"
+      end
+
+      def global_max_worker_key
+        "#{global_key}:max_workers"
+      end
+
+      def global_workers_running_key
+        "#{global_key}:workers_running"
       end
 
       def global_key
@@ -70,40 +165,6 @@ module Gru
         "GRU:#{hostname}"
       end
 
-      def reserve_workers(workers)
-        # Need a client.multi statement here to avoid race conditions?
-        reserved_workers = []
-        workers.each do |worker|
-          worker['max_workers'].times do |index|
-            if current_worker_count(worker) < max_worker_count(worker)
-              send_message(:hincr,"#{host_key}:workers_running", worker['name'])
-              reserved_workers << worker['name']
-            end
-          end
-        end
-        reserved_workers
-      end
-
-      def get_host_workers
-        send_message(:hgetall,"#{host_key}:workers_running")
-      end
-
-      def get_host_worker_counts
-        send_message(:hgetall,"#{host_key}:max_workers")
-      end
-
-      def current_worker_count(worker)
-        send_message(:hget,"#{host_key}:workers_running",worker['name']).to_i
-      end
-
-      def max_worker_count(worker)
-        send_message(:hget,"#{host_key}:max_workers",worker['name']).to_i
-      end
-
-      def get_global_worker_count(worker)
-        send_message(:hget,"#{global_key}:workers_running",worker['name'])
-      end
-
       def hostname
         @hostname ||= Socket.gethostname
       end
@@ -111,6 +172,7 @@ module Gru
       def send_message(action,*args)
         @client.send(action,*args)
       end
+
     end
   end
 end
