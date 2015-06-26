@@ -8,14 +8,15 @@ module Gru
       new(adapter,workers)
     end
 
-    def self.with_redis_connection(client,workers,global_config=nil)
+    def self.with_redis_connection(client,workers,global_config=nil,balanced=false)
       adapter = Gru::Adapters::RedisAdapter.new(client,global_config)
-      new(adapter,workers)
+      new(adapter,workers,balanced)
     end
 
-    def initialize(adapter,workers)
+    def initialize(adapter,workers,balanced=false)
       @adapter = adapter
       @workers = workers
+      @balanced = balanced
     end
 
     def register_worker_queues
@@ -23,11 +24,11 @@ module Gru
     end
 
     def provision_workers
-      @adapter.provision_workers
+      @adapter.provision_workers(@balanced)
     end
 
     def expire_workers
-      @adapter.expire_workers
+      @adapter.expire_workers(@balanced)
     end
 
     def adjust_workers
