@@ -127,7 +127,7 @@ module Gru
         else
           result = host_running.to_i < host_max.to_i
         end
-         result && global_running.to_i < global_max.to_i
+          result && global_running.to_i < global_max.to_i
       end
 
       def expire_worker?(worker,balanced)
@@ -160,7 +160,8 @@ module Gru
 
       def max_workers_per_host(global_worker_max_count,host_max)
         host_count = gru_host_count - 1
-        host_count > 1 ? (global_worker_max_count.to_i/host_count.to_f).ceil : host_max.to_i
+        rebalance_count = (global_worker_max_count.to_i/host_count.to_f).ceil
+        rebalance_count <= host_max.to_i && host_count > 1 ? rebalance_count : host_max.to_i
       end
 
       def host_max_worker_key
