@@ -173,4 +173,32 @@ describe Gru::Adapters::RedisAdapter do
       expect(adapter.expire_workers).to eq({'test_worker' => 0})
     end
   end
+
+  context "Rebalancing workers" do
+
+    before(:each) do
+
+    end
+
+    it "reduces load when workers are added" do
+      expect(client).to receive(:multi).exactly(3).times.and_yield(client).and_return([2,4,3,5])
+      expect(client).to receive(:hgetall).with("GRU:#{hostname}:max_workers").and_return(workers)
+      expect(client).to receive(:hget).with("GRU:#{hostname}:workers_running",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("GRU:global:workers_running",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("GRU:#{hostname}:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("GRU:global:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:keys).with("GRU:*:workers_running").exactly(3).times.and_return(['foo'])
+      expect(client).to receive(:setnx).exactly(3).times.and_return(true)
+      expect(client).to receive(:hincrby).with("GRU:global:workers_running",'test_worker',1).exactly(3).times
+      expect(client).to receive(:hincrby).with("GRU:#{hostname}:workers_running",'test_worker',1).exactly(3).times
+      expect(client).to receive(:del).with("GRU:test_worker").exactly(3).times
+      adapter.provision_workers(true)
+
+    end
+
+    it "increases load when workers are removed" do
+
+    end
+
+  end
 end
