@@ -46,9 +46,5 @@ module Gru
       @adapter.release_workers
     end
 
-    def cleanup
-      @adapter.cleanup
-    end
-
   end
 end

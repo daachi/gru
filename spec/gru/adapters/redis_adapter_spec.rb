@@ -28,17 +28,17 @@ describe Gru::Adapters::RedisAdapter do
     end
 
     it "registers workers" do
-      expect(client).to receive(:hsetnx).with("GRU:#{hostname}:workers_running",'test_worker',0)
+      expect(client).to receive(:hset).with("GRU:#{hostname}:workers_running",'test_worker',0)
       adapter.send(:register_workers,workers)
     end
 
     it "sets worker counts" do
-      expect(client).to receive(:hsetnx).with("GRU:#{hostname}:max_workers",'test_worker',3)
+      expect(client).to receive(:hset).with("GRU:#{hostname}:max_workers",'test_worker',3)
       adapter.send(:set_max_worker_counts,workers)
     end
 
     it "sets global worker counts" do
-      expect(client).to receive(:hsetnx).with("GRU:global:max_workers",'test_worker',3)
+      expect(client).to receive(:hset).with("GRU:global:max_workers",'test_worker',3)
       adapter.send(:set_max_global_worker_counts,workers)
     end
 
