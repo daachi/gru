@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.version       = Gru::VERSION
   spec.authors       = ["Jeffrey Gillis"]
   spec.email         = ["jeffrey.gillis1@gmail.com"]
-  spec.summary       = %q{A Redis worker manager.}
-  spec.description   = %q{This is a Redis worker/minion manager.}
+  spec.summary       = %q{An atomic worker/minion manager.}
+  spec.description   = %q{This is a worker/minion manager using different atomic data stores.}
   spec.homepage      = ""
   spec.license       = "MIT"
 
