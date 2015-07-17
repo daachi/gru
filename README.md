@@ -1,6 +1,7 @@
 # Gru
 
-TODO: Write a gem description
+Manage worker/minion counts in an atomic fashion.
+
 
 ## Installation
 
@@ -20,7 +21,30 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+    require 'gru'
+    require 'redis'
+    require 'logger'
+
+    client = Redis.new
+
+    class Gru::Adapters::RedisAdapter
+      def hostname
+        @hostname ||= ARGV[0]
+      end
+    end
+
+    workers = { 'test_worker' => 5 }
+    global = { 'test_worker' => 10 }
+    manager = Gru.with_redis_connection(client,workers,global,true)
+    manager.register_worker_queues
+    logger = Logger.new(STDOUT)
+
+    loop do
+      logger.info("STATE: #{manager.adjust_workers.inspect}")
+      sleep(1)
+    end
+
+More to come soon!
 
 ## Contributing
 
