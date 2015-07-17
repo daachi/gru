@@ -1,5 +1,4 @@
 require 'socket'
-require 'pry'
 
 module Gru
   module Adapters
@@ -38,7 +37,7 @@ module Gru
         workers = max_host_workers
         workers.each do |worker, count|
           i = 0
-          Integer(count).to_i.times do
+          Integer(count).times do
             if expire_worker?(worker,balanced)
               i -= 1 if expire_worker(worker)
             end
@@ -57,6 +56,8 @@ module Gru
             send_message(:hincrby, host_workers_running_key,worker,-1)
           end
         end
+        send_message(:del, host_workers_running_key)
+        send_message(:del, host_max_worker_key)
       end
 
       private
@@ -94,21 +95,18 @@ module Gru
       end
 
       def reserve_worker(worker)
-        lock_key = "GRU:#{worker}"
-        if send_message(:setnx,lock_key,Time.now.to_i)
-          send_message(:hincrby,host_workers_running_key,worker,1)
-          send_message(:hincrby,global_workers_running_key,worker,1)
-          send_message(:del,lock_key)
-          return true
-        end
-        false
+        adjust_workers(worker,1)
       end
 
       def expire_worker(worker)
+        adjust_workers(worker,-1)
+      end
+
+      def adjust_workers(worker,amount)
         lock_key = "GRU:#{worker}"
         if send_message(:setnx,lock_key,Time.now.to_i)
-          send_message(:hincrby,host_workers_running_key,worker,-1)
-          send_message(:hincrby,global_workers_running_key,worker,-1)
+          send_message(:hincrby,host_workers_running_key,worker,amount)
+          send_message(:hincrby,global_workers_running_key,worker,amount)
           send_message(:del,lock_key)
           return true
         end
@@ -134,11 +132,11 @@ module Gru
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
         if balanced
-          result = host_running.to_i > max_workers_per_host(global_max,host_max) || global_running.to_i > global_max.to_i
+          result = host_running.to_i > max_workers_per_host(global_max,host_max)
         else
-          result = (host_running.to_i > host_max.to_i || global_running.to_i > global_max.to_i)
+          result = host_running.to_i > host_max.to_i
         end
-         result && host_running.to_i >= 0
+         (result || global_running.to_i > global_max.to_i) && host_running.to_i >= 0
       end
 
       def worker_counts(worker)
@@ -155,12 +153,12 @@ module Gru
       end
 
       def gru_host_count
-        send_message(:keys,"GRU:*:workers_running").count
+        send_message(:keys,"GRU:*:workers_running").count - 1
       end
 
       def max_workers_per_host(global_worker_max_count,host_max)
-        host_count = gru_host_count - 1
-        rebalance_count = (global_worker_max_count.to_i/host_count.to_f).ceil
+        host_count = gru_host_count
+        rebalance_count = host_count > 0 ? (global_worker_max_count.to_i/host_count.to_f).ceil : host_max.to_i
         rebalance_count <= host_max.to_i && host_count > 1 ? rebalance_count : host_max.to_i
       end
 
