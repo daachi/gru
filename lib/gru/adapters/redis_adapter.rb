@@ -79,19 +79,19 @@ module Gru
       end
 
       def register_worker(worker,count)
-        send_message(:hsetnx,"#{host_key}:workers_running",worker,count)
+        send_message(:hset,"#{host_key}:workers_running",worker,count)
       end
 
       def register_global_worker(worker,count)
-        send_message(:hsetnx,"#{global_key}:workers_running",worker,count)
+        send_message(:hset,"#{global_key}:workers_running",worker,count)
       end
 
       def set_max_worker_count(worker,count)
-        send_message(:hsetnx,"#{host_key}:max_workers",worker,count)
+        send_message(:hset,"#{host_key}:max_workers",worker,count)
       end
 
       def set_max_global_worker_count(worker,count)
-        send_message(:hsetnx,"#{global_key}:max_workers",worker,count)
+        send_message(:hset,"#{global_key}:max_workers",worker,count)
       end
 
       def reserve_worker(worker)
