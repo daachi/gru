@@ -75,7 +75,8 @@ module Gru
       end
 
       def set_max_global_worker_counts(workers)
-        workers.each_pair {|worker,count| set_max_global_worker_count(worker,count) }
+        reset_removed_global_worker_counts(workers)
+        workers.each_pair{|worker,count| set_max_global_worker_count(worker,count) }
       end
 
       def register_worker(worker,count)
@@ -92,6 +93,13 @@ module Gru
 
       def set_max_global_worker_count(worker,count)
         send_message(:hset,"#{global_key}:max_workers",worker,count)
+      end
+
+      def reset_removed_global_worker_counts(workers)
+        global_max = send_message(:hgetall, global_max_worker_key)
+        global_max.each_pair do |worker, count|
+          send_message(:hset, global_max_worker_key, worker, 0) unless workers[worker]
+        end
       end
 
       def reserve_worker(worker)
