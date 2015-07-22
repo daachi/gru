@@ -1,5 +1,4 @@
 require 'socket'
-require 'pry'
 
 module Gru
   module Adapters
