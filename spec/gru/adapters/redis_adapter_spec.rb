@@ -38,6 +38,11 @@ describe Gru::Adapters::RedisAdapter do
     end
 
     it "sets global worker counts" do
+      expect(client).to receive(:hgetall).with("GRU:global:max_workers").and_return({
+        'test_worker' => 2,
+        'foo_worker' => 5
+      })
+      expect(client).to receive(:hset).with("GRU:global:max_workers",'foo_worker',0)
       expect(client).to receive(:hset).with("GRU:global:max_workers",'test_worker',3)
       adapter.send(:set_max_global_worker_counts,workers)
     end
