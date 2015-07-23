@@ -1,11 +1,11 @@
 require 'gru/version'
 require 'gru/worker_manager'
-require 'gru/adapters'
-require 'gru/adapters/redis_adapter'
+require 'gru/configuration'
 
 module Gru
-  def self.with_redis_connection(client, worker_config, global_config,balanced)
-    manager = WorkerManager.with_redis_connection(client,worker_config,global_config,balanced)
+  def self.create(settings)
+    configuration = Gru::Configuration.new(settings)
+    manager = WorkerManager.new(configuration.adapter)
     manager.register_worker_queues
     manager
   end

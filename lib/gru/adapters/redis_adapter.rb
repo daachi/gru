@@ -5,44 +5,42 @@ module Gru
     class RedisAdapter
       attr_reader :client
 
-      def initialize(client,global_config=nil)
+      def initialize(client,settings)
         @client = client
-        @global_config = global_config
+        @settings = settings
       end
 
-      def process_workers(workers)
-        register_workers(workers)
-        set_max_worker_counts(workers)
-        register_global_workers(@global_config || workers)
-        set_max_global_worker_counts(@global_config || workers)
+      def set_worker_counts
+        register_workers(@settings.host_maximums)
+        set_max_worker_counts(@settings.host_maximums)
+        register_global_workers(@settings.cluster_maximums)
+        set_max_global_worker_counts(@settings.cluster_maximums)
       end
 
-      def provision_workers(balanced=false)
+      def provision_workers
         available = {}
         workers = max_host_workers
         workers.each do |worker, count|
-          i = 0
-          Integer(count).times do
-            if reserve_worker?(worker,balanced)
-              i += 1 if reserve_worker(worker)
+          available[worker] = with_worker_counts(worker,count) do |total|
+            if reserve_worker?(worker)
+              total += 1 if reserve_worker(worker)
             end
+            total
           end
-          available[worker] = i
         end
         available
       end
 
-      def expire_workers(balanced=false)
+      def expire_workers
         removable = {}
         workers = max_host_workers
         workers.each do |worker, count|
-          i = 0
-          Integer(count).times do
-            if expire_worker?(worker,balanced)
-              i -= 1 if expire_worker(worker)
+          removable[workers] = with_worker_counts(worker,count) do |total|
+            if expire_worker?(worker)
+              total -= 1 if expire_worker(worker)
             end
+            total
           end
-          removable[worker] = i
         end
         removable
       end
@@ -86,25 +84,31 @@ module Gru
       end
 
       def register_worker(worker,count)
-        send_message(:hsetnx,"#{host_key}:workers_running",worker,count)
+        send_message(:hsetnx,host_workers_running_key,worker,count)
       end
 
       def register_global_worker(worker,count)
-        send_message(:hsetnx,"#{global_key}:workers_running",worker,count)
+        send_message(:hsetnx,global_workers_running_key,worker,count)
       end
 
       def set_max_worker_count(worker,count)
-        send_message(:hset,"#{host_key}:max_workers",worker,count)
+        send_message(:hset,host_max_worker_key,worker,count)
       end
 
       def set_max_global_worker_count(worker,count)
-        send_message(:hset,"#{global_key}:max_workers",worker,count)
+        send_message(:hset,global_max_worker_key,worker,count)
       end
 
       def reset_removed_global_worker_counts(workers)
-        global_max = send_message(:hgetall, global_max_worker_key)
+        global_max = max_host_workers
         global_max.each_pair do |worker, count|
-          send_message(:hset, global_max_worker_key, worker, 0) unless workers[worker]
+          set_max_global_worker_count(worker,0) unless workers[worker]
+        end
+      end
+
+      def with_worker_counts(worker,count,&block)
+        Integer(count).times.reduce(0) do |total|
+          block.call(total)
         end
       end
 
@@ -127,14 +131,25 @@ module Gru
         false
       end
 
+      def with_worker_lock(worker,&block)
+        lock_key = "GRU:#{worker}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          block.call
+        end
+      end
+
       def max_host_workers
         send_message(:hgetall,host_max_worker_key)
       end
 
-      def reserve_worker?(worker,balanced)
+      def max_global_workers
+        send_message(:hgetall,global_max_worker_key)
+      end
+
+      def reserve_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if balanced
+        if @balanced
           result = host_running.to_i < max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i < host_max.to_i
@@ -142,10 +157,10 @@ module Gru
           result && global_running.to_i < global_max.to_i
       end
 
-      def expire_worker?(worker,balanced)
+      def expire_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if balanced
+        if @balanced
           result = host_running.to_i > max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i > host_max.to_i
@@ -167,7 +182,7 @@ module Gru
       end
 
       def gru_host_count
-        send_message(:keys,"GRU:*:workers_running").count - 1
+        send_message(:keys,"GRU:*#{@cluster}:#{@environment}:workers_running").count - 1
       end
 
       def max_workers_per_host(global_worker_max_count,host_max)
@@ -193,11 +208,11 @@ module Gru
       end
 
       def global_key
-        "GRU:global"
+        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}:global"
       end
 
       def host_key
-        "GRU:#{hostname}"
+        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}:#{hostname}"
       end
 
       def hostname
