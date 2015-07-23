@@ -7,7 +7,7 @@ describe Gru::WorkerManager do
   }
 
   let(:manager) {
-    Gru::WorkerManager.new(adapter, workers)
+    Gru::WorkerManager.new(adapter)
   }
 
   let(:workers) {
@@ -15,10 +15,6 @@ describe Gru::WorkerManager do
   }
 
   context "When initialized" do
-    it "has workers" do
-      expect(manager.workers).not_to be_nil
-    end
-
     it "has an adapter instance" do
       expect(manager.adapter).not_to be_nil
     end
@@ -26,8 +22,8 @@ describe Gru::WorkerManager do
 
   context "Creating Worker Queues" do
     it "Creates workers" do
-      expect(adapter).to receive(:process_workers).with(workers).and_return(true)
-      manager.register_worker_queues
+      expect(adapter).to receive(:set_worker_counts).and_return(true)
+      manager.register_workers
     end
   end
 

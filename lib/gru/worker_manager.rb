@@ -1,34 +1,21 @@
 module Gru
   class WorkerManager
-    attr_reader :workers, :adapter
+    attr_reader :adapter
 
-    def self.create(settings,workers)
-      redis = Redis.new(settings)
-      adapter = Gru::Adapters::RedisAdapter.new(redis)
-      new(adapter,workers)
-    end
-
-    def self.with_redis_connection(client,workers,global_config=nil,balanced=false)
-      adapter = Gru::Adapters::RedisAdapter.new(client,global_config)
-      new(adapter,workers,balanced)
-    end
-
-    def initialize(adapter,workers,balanced=false)
+    def initialize(adapter)
       @adapter = adapter
-      @workers = workers
-      @balanced = balanced
     end
 
-    def register_worker_queues
-      @adapter.process_workers(@workers)
+    def register_workers
+      @adapter.set_worker_counts
     end
 
     def provision_workers
-      @adapter.provision_workers(@balanced)
+      @adapter.provision_workers
     end
 
     def expire_workers
-      @adapter.expire_workers(@balanced)
+      @adapter.expire_workers
     end
 
     def adjust_workers
