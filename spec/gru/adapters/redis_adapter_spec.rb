@@ -28,7 +28,7 @@ describe Gru::Adapters::RedisAdapter do
     end
 
     it "registers workers" do
-      expect(client).to receive(:hset).with("GRU:#{hostname}:workers_running",'test_worker',0)
+      expect(client).to receive(:hsetnx).with("GRU:#{hostname}:workers_running",'test_worker',0)
       adapter.send(:register_workers,workers)
     end
 
