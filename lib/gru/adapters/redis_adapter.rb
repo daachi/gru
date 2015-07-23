@@ -51,9 +51,15 @@ module Gru
         workers = max_host_workers
         workers.keys.each do |worker|
           host_running_count = local_running_count(worker)
+          running_count = host_running_count
+          global_running_count = host_running_count
           host_running_count.times do
-            send_message(:hincrby, global_workers_running_key,worker,-1)
-            send_message(:hincrby, host_workers_running_key,worker,-1)
+            if global_running_count > 0
+              global_running_count = send_message(:hincrby, global_workers_running_key,worker,-1)
+            end
+            if running_count > 0
+              running_count = send_message(:hincrby, host_workers_running_key,worker,-1)
+            end
           end
         end
         send_message(:del, host_workers_running_key)
