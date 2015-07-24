@@ -6,7 +6,7 @@ module Gru
   def self.create(settings)
     configuration = Gru::Configuration.new(settings)
     manager = WorkerManager.new(configuration.adapter)
-    manager.register_worker_queues
+    manager.register_workers
     manager
   end
 end

@@ -35,7 +35,7 @@ module Gru
         removable = {}
         workers = max_host_workers
         workers.each do |worker, count|
-          removable[workers] = with_worker_counts(worker,count) do |total|
+          removable[worker] = with_worker_counts(worker,count) do |total|
             if expire_worker?(worker)
               total -= 1 if expire_worker(worker)
             end
@@ -121,7 +121,7 @@ module Gru
       end
 
       def adjust_workers(worker,amount)
-        lock_key = "GRU:#{worker}"
+        lock_key = "#{gru_key}:#{worker}"
         if send_message(:setnx,lock_key,Time.now.to_i)
           send_message(:hincrby,host_workers_running_key,worker,amount)
           send_message(:hincrby,global_workers_running_key,worker,amount)
@@ -129,13 +129,6 @@ module Gru
           return true
         end
         false
-      end
-
-      def with_worker_lock(worker,&block)
-        lock_key = "GRU:#{worker}"
-        if send_message(:setnx,lock_key,Time.now.to_i)
-          block.call
-        end
       end
 
       def max_host_workers
@@ -149,7 +142,7 @@ module Gru
       def reserve_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if @balanced
+        if @settings.rebalance_flag
           result = host_running.to_i < max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i < host_max.to_i
@@ -160,7 +153,7 @@ module Gru
       def expire_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if @balanced
+        if @settings.rebalance_flag
           result = host_running.to_i > max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i > host_max.to_i
@@ -182,7 +175,7 @@ module Gru
       end
 
       def gru_host_count
-        send_message(:keys,"GRU:*#{@cluster}:#{@environment}:workers_running").count - 1
+        send_message(:keys,"#{gru_key}:*:workers_running").count - 1
       end
 
       def max_workers_per_host(global_worker_max_count,host_max)
@@ -208,11 +201,15 @@ module Gru
       end
 
       def global_key
-        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}:global"
+        "#{gru_key}:global"
       end
 
       def host_key
-        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}:#{hostname}"
+        "#{gru_key}:#{hostname}"
+      end
+
+      def gru_key
+        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}"
       end
 
       def hostname
