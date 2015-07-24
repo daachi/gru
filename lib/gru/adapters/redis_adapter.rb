@@ -11,6 +11,7 @@ module Gru
       end
 
       def set_worker_counts
+        set_rebalance_flag(@settings.rebalance_flag)
         register_workers(@settings.host_maximums)
         set_max_worker_counts(@settings.host_maximums)
         register_global_workers(@settings.cluster_maximums)
@@ -83,6 +84,10 @@ module Gru
         workers.each_pair{|worker,count| set_max_global_worker_count(worker,count) }
       end
 
+      def set_rebalance_flag(rebalance)
+        send_message(:set,"#{gru_key}:rebalance",rebalance)
+      end
+
       def register_worker(worker,count)
         send_message(:hsetnx,host_workers_running_key,worker,count)
       end
@@ -142,7 +147,7 @@ module Gru
       def reserve_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if @settings.rebalance_flag
+        if rebalance_cluster?
           result = host_running.to_i < max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i < host_max.to_i
@@ -153,7 +158,7 @@ module Gru
       def expire_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
-        if @settings.rebalance_flag
+        if rebalance_cluster?
           result = host_running.to_i > max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i > host_max.to_i
@@ -182,6 +187,10 @@ module Gru
         host_count = gru_host_count
         rebalance_count = host_count > 0 ? (global_worker_max_count.to_i/host_count.to_f).ceil : host_max.to_i
         rebalance_count <= host_max.to_i && host_count > 1 ? rebalance_count : host_max.to_i
+      end
+
+      def rebalance_cluster?
+        send_message(:get,"#{gru_key}:rebalance") == "true"
       end
 
       def host_max_worker_key
