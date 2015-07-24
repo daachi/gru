@@ -33,10 +33,13 @@ Or install it yourself as:
       end
     end
 
-    workers = { 'test_worker' => 5 }
-    global = { 'test_worker' => 10 }
-    manager = Gru.with_redis_connection(client,workers,global,true)
-    manager.register_worker_queues
+    settings = {
+      host_maximums: { 'test_worker' => 5 },
+      cluster_maximums: { 'test_worker' => 10 },
+      rebalance_flag: true
+    }
+
+    manager = Gru.create(settings)
     logger = Logger.new(STDOUT)
 
     loop do
