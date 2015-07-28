@@ -10,7 +10,7 @@ module Gru
       @rebalance_flag = settings.delete(:rebalance_flag) || false
       @cluster_name = settings.delete(:cluster_name) || 'default'
       @environment_name = settings.delete(:environment_name) || 'default'
-      client = initialize_client(settings.delete(:redis_config))
+      client = initialize_client(settings.delete(:client_settings))
       @adapter = Gru::Adapters::RedisAdapter.new(client,self)
       if @cluster_maximums.nil?
         raise ArgumentError "Need at least a cluster configuration"
