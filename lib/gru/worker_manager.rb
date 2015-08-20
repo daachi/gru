@@ -2,8 +2,9 @@ module Gru
   class WorkerManager
     attr_reader :adapter
 
-    def initialize(adapter)
+    def initialize(adapter, hooks)
       @adapter = adapter
+      @hooks = hooks
     end
 
     def register_workers
@@ -19,14 +20,11 @@ module Gru
     end
 
     def adjust_workers
-      result = {}
-      add = provision_workers
-      remove = expire_workers
-      keys = add.keys + remove.keys
-      keys.uniq.each do |key|
-        result[key] = add.fetch(key) {0} + remove.fetch(key) {0}
+      results = {}
+      @hooks.each do |hook|
+        results = hook.new(adapter,results).call
       end
-      result
+      results
     end
 
     def release_workers

@@ -6,8 +6,12 @@ describe Gru::WorkerManager do
     double("adapter")
   }
 
+  let (:hooks) {
+    [Gru::Hooks::DefaultHook]
+  }
+
   let(:manager) {
-    Gru::WorkerManager.new(adapter)
+    Gru::WorkerManager.new(adapter, hooks)
   }
 
   let(:workers) {
