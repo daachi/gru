@@ -12,6 +12,7 @@ module Gru
 
       def set_worker_counts
         set_rebalance_flag(@settings.rebalance_flag)
+        release_workers
         register_workers(@settings.host_maximums)
         set_max_worker_counts(@settings.host_maximums)
         register_global_workers(@settings.cluster_maximums)
