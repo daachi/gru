@@ -6,6 +6,10 @@ module Gru
       @adapter = adapter
     end
 
+    def expire_dead_cluster_members
+      @adapter.release_presumed_dead_workers
+    end
+
     def register_workers
       @adapter.set_worker_counts
     end
@@ -20,6 +24,7 @@ module Gru
 
     def adjust_workers
       result = {}
+      expire_dead_cluster_members
       add = provision_workers
       remove = expire_workers
       keys = add.keys + remove.keys
