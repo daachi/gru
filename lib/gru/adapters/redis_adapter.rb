@@ -12,6 +12,7 @@ module Gru
 
       def set_worker_counts
         set_rebalance_flag(@settings.rebalance_flag)
+        set_presume_host_dead_after(@settings.presume_host_dead_after)
         release_workers
         register_workers(@settings.host_maximums)
         set_max_worker_counts(@settings.host_maximums)
@@ -66,6 +67,18 @@ module Gru
         send_message(:del, host_max_worker_key)
       end
 
+      def release_presumed_dead_workers
+        presumed_dead_cluster_members.each_pair do |hostname,timestamp|
+          lock_key = "#{gru_key}:removing_dead_host:#{hostname}"
+          if send_message(:setnx,lock_key,Time.now.to_i)
+            remove_dead_host_workers_from_counts(hostname)
+            send_message(:del,lock_key)
+            return true
+          end
+          false
+        end
+      end
+
       private
 
       def register_workers(workers)
@@ -89,6 +102,10 @@ module Gru
         send_message(:set,"#{gru_key}:rebalance",rebalance)
       end
 
+      def set_presume_host_dead_after(seconds)
+        send_message(:set,"#{gru_key}:presume_host_dead_after",seconds)
+      end
+
       def register_worker(worker,count)
         send_message(:hsetnx,host_workers_running_key,worker,count)
       end
@@ -103,6 +120,18 @@ module Gru
 
       def set_max_global_worker_count(worker,count)
         send_message(:hset,global_max_worker_key,worker,count)
+      end
+
+      def remove_dead_host_workers_from_counts(hostname)
+        workers_running_on_dead_host = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
+        workers_running_on_dead_host.each_pair do |worker_name, count|
+          puts "#{gru_key}:#{hostname}:workers_running"
+          puts worker_name
+          puts count
+          send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,Integer(count)*-1)
+          send_message(:hincrby,global_workers_running_key,worker_name,Integer(count)*-1)
+        end
+        send_message(:hdel,resque_cluster_pings_key,hostname)
       end
 
       def reset_removed_global_worker_counts(workers)
@@ -145,6 +174,10 @@ module Gru
         send_message(:hgetall,global_max_worker_key)
       end
 
+      def resque_cluster_members
+        send_message(:hgetall, resque_cluster_pings_key)
+      end
+
       def reserve_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
@@ -176,6 +209,10 @@ module Gru
         end
       end
 
+      def presumed_dead_cluster_members
+        resque_cluster_members.select{ |hostname, timestamp| Time.parse(timestamp).to_i + presume_host_dead_after < Time.now.to_i}
+      end
+
       def local_running_count(worker)
         send_message(:hget,host_workers_running_key,worker).to_i
       end
@@ -192,6 +229,11 @@ module Gru
 
       def rebalance_cluster?
         send_message(:get,"#{gru_key}:rebalance") == "true"
+      end
+
+      def presume_host_dead_after
+        dead_after_number_of_seconds = send_message(:get,"#{gru_key}:presume_host_dead_after").to_i
+        dead_after_number_of_seconds > 0 ? dead_after_number_of_seconds : 120
       end
 
       def host_max_worker_key
@@ -220,6 +262,10 @@ module Gru
 
       def gru_key
         "GRU:#{@settings.environment_name}:#{@settings.cluster_name}"
+      end
+
+      def resque_cluster_pings_key
+        "resque:cluster:#{@settings.cluster_name}:#{@settings.environment_name}:pings"
       end
 
       def hostname
