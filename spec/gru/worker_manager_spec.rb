@@ -31,6 +31,7 @@ describe Gru::WorkerManager do
     it "determines new workers to create" do
       expect(adapter).to receive(:provision_workers).and_return({})
       expect(adapter).to receive(:expire_workers).and_return({})
+      expect(adapter).to receive(:release_presumed_dead_workers)
       manager.adjust_workers
     end
 
