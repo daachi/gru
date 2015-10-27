@@ -125,9 +125,6 @@ module Gru
       def remove_dead_host_workers_from_counts(hostname)
         workers_running_on_dead_host = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
         workers_running_on_dead_host.each_pair do |worker_name, count|
-          puts "#{gru_key}:#{hostname}:workers_running"
-          puts worker_name
-          puts count
           send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,Integer(count)*-1)
           send_message(:hincrby,global_workers_running_key,worker_name,Integer(count)*-1)
         end
