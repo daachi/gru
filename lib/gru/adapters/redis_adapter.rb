@@ -123,12 +123,16 @@ module Gru
       end
 
       def remove_dead_host_workers_from_counts(hostname)
-        workers_running_on_dead_host = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
-        workers_running_on_dead_host.each_pair do |worker_name, count|
-          send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,Integer(count)*-1)
-          send_message(:hincrby,global_workers_running_key,worker_name,Integer(count)*-1)
+        lock_key = "#{gru_key}:#{hostname}"
+        if send_message(:setnx,lock_key,Time.now.to_i)
+          workers_running_on_dead_host = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
+          workers_running_on_dead_host.each_pair do |worker_name, count|
+            send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,Integer(count)*-1)
+            send_message(:hincrby,global_workers_running_key,worker_name,Integer(count)*-1)
+          end
+          send_message(:del,lock_key)
+          send_message(:hdel,resque_cluster_pings_key,hostname)
         end
-        send_message(:hdel,resque_cluster_pings_key,hostname)
       end
 
       def reset_removed_global_worker_counts(workers)
