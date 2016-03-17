@@ -232,4 +232,20 @@ describe Gru::Adapters::RedisAdapter do
     end
 
   end
+
+  context "#make_global_workers_counts_non_negative" do
+    it "keeps global counts the same when there are non negative counts" do
+      expect(client).to receive(:hgetall).with("#{gru_key}:global:workers_running").and_return({"test_worker" => "1", "test_worker2" => "0", "test_worker3" => "10"})
+      expect(client).to_not receive(:hset)
+      adapter.send(:make_global_workers_counts_non_negative)
+    end
+
+    it "changes negative counts to 0" do
+      expect(client).to receive(:hgetall).with("#{gru_key}:global:workers_running").and_return({"test_worker" => "3", "test_worker2" => "-3", "test_worker3" => "-10"})
+      expect(client).to_not receive(:hset).with("#{gru_key}:global:workers_running", "test_worker", "0")
+      expect(client).to receive(:hset).with("#{gru_key}:global:workers_running", "test_worker2", "0")
+      expect(client).to receive(:hset).with("#{gru_key}:global:workers_running", "test_worker3", "0")
+      adapter.send(:make_global_workers_counts_non_negative)
+    end
+  end
 end

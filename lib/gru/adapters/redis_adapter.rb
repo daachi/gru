@@ -232,6 +232,10 @@ module Gru
         send_message(:get,"#{gru_key}:rebalance") == "true"
       end
 
+      def make_global_workers_counts_non_negative
+        send_message(:hgetall, global_workers_running_key).select{|k,v| v.to_i < 0}.each{|k,v| send_message(:hset, global_workers_running_key, k, "0")}
+      end
+
       def presume_host_dead_after
         dead_after_number_of_seconds = send_message(:get,"#{gru_key}:presume_host_dead_after").to_i
         dead_after_number_of_seconds > 0 ? dead_after_number_of_seconds : 120
