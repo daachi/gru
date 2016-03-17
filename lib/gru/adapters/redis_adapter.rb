@@ -202,12 +202,17 @@ module Gru
       end
 
       def worker_counts(worker)
-        @client.multi do |multi|
+        counts = @client.multi do |multi|
           multi.hget(host_workers_running_key,worker)
           multi.hget(global_workers_running_key,worker)
           multi.hget(host_max_worker_key,worker)
           multi.hget(global_max_worker_key,worker)
         end
+        if counts[1].to_i <0
+          make_global_workers_count_non_negative(worker)
+          counts[1] = send_message(:hget, global_workers_running_key, worker)
+        end
+        counts
       end
 
       def presumed_dead_cluster_members
@@ -232,8 +237,8 @@ module Gru
         send_message(:get,"#{gru_key}:rebalance") == "true"
       end
 
-      def make_global_workers_counts_non_negative
-        send_message(:hgetall, global_workers_running_key).select{|k,v| v.to_i < 0}.each{|k,v| send_message(:hset, global_workers_running_key, k, "0")}
+      def make_global_workers_count_non_negative(worker)
+        send_message(:hset, global_workers_running_key, worker, 0)
       end
 
       def presume_host_dead_after

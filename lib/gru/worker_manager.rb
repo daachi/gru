@@ -18,10 +18,6 @@ module Gru
       @adapter.provision_workers
     end
 
-    def make_global_workers_counts_non_negative
-      @adapter.make_global_workers_counts_non_negative
-    end
-
     def expire_workers
       @adapter.expire_workers
     end

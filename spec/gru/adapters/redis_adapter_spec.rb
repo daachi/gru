@@ -79,7 +79,9 @@ describe Gru::Adapters::RedisAdapter do
       end
 
       it "returns workers with 0 existing workers" do
-        expect(client).to receive(:multi).exactly(3).times.and_yield(client).and_return([0,0,3,3])
+        expect(client).to receive(:multi).exactly(3).times.and_yield(client).and_return([0,-1,3,3])
+        expect(client).to receive(:hset).with("#{gru_key}:global:workers_running",'test_worker', 0)
+        expect(client).to receive(:hget).with("#{gru_key}:global:workers_running",'test_worker').exactly(1).times.and_return(0)
         expect(client).to receive(:setnx).exactly(3).times.and_return(true)
         expect(client).to receive(:del).with("#{gru_key}:test_worker").exactly(3).times
         expect(client).to receive(:get).with("#{gru_key}:rebalance").exactly(3).times
@@ -151,6 +153,7 @@ describe Gru::Adapters::RedisAdapter do
         available_workers = adapter.provision_workers
         expect(available_workers).to eq({'test_worker' => 0})
       end
+
     end
   end
 
@@ -231,21 +234,5 @@ describe Gru::Adapters::RedisAdapter do
 
     end
 
-  end
-
-  context "#make_global_workers_counts_non_negative" do
-    it "keeps global counts the same when there are non negative counts" do
-      expect(client).to receive(:hgetall).with("#{gru_key}:global:workers_running").and_return({"test_worker" => "1", "test_worker2" => "0", "test_worker3" => "10"})
-      expect(client).to_not receive(:hset)
-      adapter.send(:make_global_workers_counts_non_negative)
-    end
-
-    it "changes negative counts to 0" do
-      expect(client).to receive(:hgetall).with("#{gru_key}:global:workers_running").and_return({"test_worker" => "3", "test_worker2" => "-3", "test_worker3" => "-10"})
-      expect(client).to_not receive(:hset).with("#{gru_key}:global:workers_running", "test_worker", "0")
-      expect(client).to receive(:hset).with("#{gru_key}:global:workers_running", "test_worker2", "0")
-      expect(client).to receive(:hset).with("#{gru_key}:global:workers_running", "test_worker3", "0")
-      adapter.send(:make_global_workers_counts_non_negative)
-    end
   end
 end
