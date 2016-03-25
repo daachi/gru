@@ -5,9 +5,9 @@ module Gru
     class RedisAdapter
       attr_reader :client
 
-      def initialize(client,settings)
-        @client = client
+      def initialize(settings)
         @settings = settings
+        @client = initialize_client(settings.client_settings)
       end
 
       def set_worker_counts
@@ -18,6 +18,7 @@ module Gru
         set_max_worker_counts(@settings.host_maximums)
         register_global_workers(@settings.cluster_maximums)
         set_max_global_worker_counts(@settings.cluster_maximums)
+        update_heartbeat if manage_heartbeat?
       end
 
       def provision_workers
@@ -51,32 +52,31 @@ module Gru
       def release_workers
         workers = max_host_workers
         workers.keys.each do |worker|
-          host_running_count = local_running_count(worker)
-          running_count = host_running_count
-          global_running_count = host_running_count
-          host_running_count.times do
-            if global_running_count > 0
-              global_running_count = send_message(:hincrby, global_workers_running_key,worker,-1)
-            end
-            if running_count > 0
-              running_count = send_message(:hincrby, host_workers_running_key,worker,-1)
-            end
+          host_count = local_running_count(worker)
+          global_count = host_count
+          host_count.times do
+            global_count = send_message(:hincrby, global_workers_running_key, worker, -1) if global_count > 0
+            host_count = send_message(:hincrby, host_workers_running_key,worker,-1) if host_count > 0
           end
         end
         send_message(:del, host_workers_running_key)
         send_message(:del, host_max_worker_key)
+        send_message(:hdel, heartbeat_key, hostname)
       end
 
-      def release_presumed_dead_workers
-        presumed_dead_cluster_members.each_pair do |hostname,timestamp|
+      def release_presumed_dead_worker_hosts
+        return false unless manage_heartbeat?
+        update_heartbeat
+        presumed_dead_worker_hosts.each_pair do |hostname,timestamp|
           lock_key = "#{gru_key}:removing_dead_host:#{hostname}"
           if send_message(:setnx,lock_key,Time.now.to_i)
-            remove_dead_host_workers_from_counts(hostname)
+            remove_worker_host(hostname)
+            send_message(:hdel,heartbeat_key,hostname)
             send_message(:del,lock_key)
             return true
           end
-          false
         end
+        false
       end
 
       private
@@ -122,17 +122,24 @@ module Gru
         send_message(:hset,global_max_worker_key,worker,count)
       end
 
-      def remove_dead_host_workers_from_counts(hostname)
-        lock_key = "#{gru_key}:#{hostname}"
-        if send_message(:setnx,lock_key,Time.now.to_i)
-          workers_running_on_dead_host = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
-          workers_running_on_dead_host.each_pair do |worker_name, count|
-            send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,Integer(count)*-1)
-            send_message(:hincrby,global_workers_running_key,worker_name,Integer(count)*-1)
+      def manage_heartbeat?
+        @settings.manage_worker_heartbeats
+      end
+
+      def update_heartbeat
+        send_message(:hset,heartbeat_key,hostname,Time.now.to_i)
+      end
+
+      def remove_worker_host(hostname)
+        workers = send_message(:hgetall, "#{gru_key}:#{hostname}:workers_running")
+        workers.each_pair do |worker_name, count|
+          local_count, global_count = Integer(count), Integer(count)
+          Integer(count).times do
+            local_count = send_message(:hincrby,"#{gru_key}:#{hostname}:workers_running",worker_name,-1) if local_count > 0
+            global_count = send_message(:hincrby,global_workers_running_key,worker_name,-1) if global_count > 0
           end
-          send_message(:del,lock_key)
-          send_message(:hdel,resque_cluster_pings_key,hostname)
         end
+        send_message(:del,"#{gru_key}:#{hostname}:workers_running")
       end
 
       def reset_removed_global_worker_counts(workers)
@@ -175,8 +182,8 @@ module Gru
         send_message(:hgetall,global_max_worker_key)
       end
 
-      def resque_cluster_members
-        send_message(:hgetall, resque_cluster_pings_key)
+      def workers_with_heartbeats
+        send_message(:hgetall, heartbeat_key)
       end
 
       def reserve_worker?(worker)
@@ -215,8 +222,8 @@ module Gru
         counts
       end
 
-      def presumed_dead_cluster_members
-        resque_cluster_members.select{ |hostname, timestamp| Time.parse(timestamp).to_i + presume_host_dead_after < Time.now.to_i}
+      def presumed_dead_worker_hosts
+        workers_with_heartbeats.select{ |hostname, timestamp| timestamp.to_i + presume_host_dead_after < Time.now.to_i}
       end
 
       def local_running_count(worker)
@@ -270,12 +277,12 @@ module Gru
         "#{gru_key}:#{hostname}"
       end
 
-      def gru_key
-        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}"
+      def heartbeat_key
+        "#{gru_key}:heartbeats"
       end
 
-      def resque_cluster_pings_key
-        "resque:cluster:#{@settings.cluster_name}:#{@settings.environment_name}:pings"
+      def gru_key
+        "GRU:#{@settings.environment_name}:#{@settings.cluster_name}"
       end
 
       def hostname
@@ -286,6 +293,9 @@ module Gru
         @client.send(action,*args)
       end
 
+      def initialize_client(config=nil)
+        Redis.new(config || {})
+      end
     end
   end
 end

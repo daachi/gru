@@ -7,7 +7,7 @@ module Gru
     end
 
     def expire_dead_cluster_members
-      @adapter.release_presumed_dead_workers
+      @adapter.release_presumed_dead_worker_hosts
     end
 
     def register_workers
