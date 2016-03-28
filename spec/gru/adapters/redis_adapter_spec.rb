@@ -5,7 +5,7 @@ require 'pry'
 describe Gru::Adapters::RedisAdapter do
   before(:each) do
     allow(Socket).to receive(:gethostname).and_return(hostname)
-    allow_any_instance_of(Gru::Configuration).to receive(:initialize_client).and_return(client)
+    allow_any_instance_of(Gru::Adapters::RedisAdapter).to receive(:initialize_client).and_return(client)
   end
 
   let(:hostname) { 'foo' }
@@ -19,13 +19,12 @@ describe Gru::Adapters::RedisAdapter do
   }
 
   let(:adapter) {
-    Gru::Adapters::RedisAdapter.new(client,config)
+    Gru::Adapters::RedisAdapter.new(config)
   }
 
   let(:gru_key) {
     "GRU:#{config.environment_name}:#{config.cluster_name}"
   }
-
 
   context "initialization" do
     it "has a client" do
@@ -227,7 +226,6 @@ describe Gru::Adapters::RedisAdapter do
       expect(client).to receive(:del).with("#{gru_key}:test_worker").exactly(3).times
       expect(client).to receive(:get).with("#{gru_key}:rebalance").and_return("true").exactly(3).times
       adapter.provision_workers
-
     end
 
     it "increases load when workers are removed" do
