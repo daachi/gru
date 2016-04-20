@@ -13,6 +13,7 @@ module Gru
       @presume_host_dead_after = settings.delete(:presume_host_dead_after)
       @client_settings = settings.delete(:client_settings)
       @manage_worker_heartbeats = settings.delete(:manage_worker_heartbeats) || false
+      @max_worker_processes_per_host = settings.delete(:max_workers_per_host) || 30
       @adapter = Gru::Adapters::RedisAdapter.new(self)
       if @cluster_maximums.nil?
         raise ArgumentError, "Need at least a cluster configuration"
