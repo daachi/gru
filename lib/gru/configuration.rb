@@ -3,7 +3,8 @@ require 'gru/adapters/redis_adapter'
 
 module Gru
   class Configuration
-    attr_reader :cluster_maximums, :host_maximums, :rebalance_flag, :adapter, :cluster_name, :environment_name, :presume_host_dead_after, :client_settings, :manage_worker_heartbeats
+    attr_reader :cluster_maximums, :host_maximums, :rebalance_flag, :adapter, :cluster_name,
+      :environment_name, :presume_host_dead_after, :client_settings, :manage_worker_heartbeats, :max_worker_processes_per_host
     def initialize(settings)
       @host_maximums = settings.delete(:host_maximums) || settings.delete(:cluster_maximums)
       @cluster_maximums = settings.delete(:cluster_maximums) || @host_maximums
