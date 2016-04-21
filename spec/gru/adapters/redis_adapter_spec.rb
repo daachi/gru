@@ -152,7 +152,6 @@ describe Gru::Adapters::RedisAdapter do
         available_workers = adapter.provision_workers
         expect(available_workers).to eq({'test_worker' => 0})
       end
-
     end
   end
 
@@ -207,8 +206,9 @@ describe Gru::Adapters::RedisAdapter do
       Gru::Configuration.new({
         cluster_maximums: { 'test_worker' => 3 },
         environment_name: 'environment',
-        cluster_name: 'cluster',
-        rebalance_flag: true
+        max_workers_per_host: 10,
+        rebalance_flag: true,
+        cluster_name: 'cluster'
       })
     }
 
@@ -226,6 +226,36 @@ describe Gru::Adapters::RedisAdapter do
       expect(client).to receive(:del).with("#{gru_key}:test_worker").exactly(3).times
       expect(client).to receive(:get).with("#{gru_key}:rebalance").and_return("true").exactly(3).times
       adapter.provision_workers
+    end
+
+    it "doesn't provision workers if local proc max has been reached" do
+      expect(client).to receive(:multi).exactly(3).times.and_yield(client).and_return([10,20,20,30])
+      expect(client).to receive(:hgetall).with("#{gru_key}:#{hostname}:max_workers").and_return(config.cluster_maximums)
+      expect(client).to receive(:keys).with("#{gru_key}:*:workers_running").exactly(3).times.and_return(["test1","test2"])
+      expect(client).to receive(:get).with("#{gru_key}:rebalance").exactly(3).times.and_return("true")
+      expect(client).to receive(:hget).with("#{gru_key}:#{hostname}:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:global:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:#{hostname}:workers_running",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:global:workers_running",'test_worker').exactly(3).times
+      available_workers = adapter.provision_workers
+      expect(available_workers).to eq({'test_worker' => 0})
+    end
+
+    it "provisions workers if local proc max hasn't been reached" do
+      expect(client).to receive(:multi).exactly(3).times.and_yield(client).and_return([9,20,20,30], [10,20,20,30])
+      expect(client).to receive(:hgetall).with("#{gru_key}:#{hostname}:max_workers").and_return(config.cluster_maximums)
+      expect(client).to receive(:setnx).exactly(1).times.and_return(true)
+      expect(client).to receive(:hincrby).with("#{gru_key}:foo:workers_running",'test_worker',1).exactly(1).times
+      expect(client).to receive(:hincrby).with("#{gru_key}:global:workers_running",'test_worker',1).exactly(1).times
+      expect(client).to receive(:del).with("#{gru_key}:test_worker").exactly(1).times
+      expect(client).to receive(:keys).with("#{gru_key}:*:workers_running").exactly(3).times.and_return(["test1","test2"])
+      expect(client).to receive(:get).with("#{gru_key}:rebalance").exactly(3).times.and_return("true")
+      expect(client).to receive(:hget).with("#{gru_key}:#{hostname}:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:global:max_workers",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:#{hostname}:workers_running",'test_worker').exactly(3).times
+      expect(client).to receive(:hget).with("#{gru_key}:global:workers_running",'test_worker').exactly(3).times
+      available_workers = adapter.provision_workers
+      expect(available_workers).to eq({'test_worker' => 1})
     end
 
     it "increases load when workers are removed" do
