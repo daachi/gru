@@ -190,7 +190,8 @@ module Gru
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
         if rebalance_cluster?
-          result = host_running.to_i < max_workers_per_host(global_max,host_max)
+          result = host_running.to_i < max_workers_per_host(global_max,host_max) &&
+            host_running.to_i < @settings.max_worker_processes_per_host
         else
           result = host_running.to_i < host_max.to_i
         end
@@ -201,7 +202,8 @@ module Gru
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
         if rebalance_cluster?
-          result = host_running.to_i > max_workers_per_host(global_max,host_max)
+          result = host_running.to_i > max_workers_per_host(global_max,host_max) &&
+            host_running.to_i > @settings.max_worker_processes_per_host
         else
           result = host_running.to_i > host_max.to_i
         end
