@@ -190,24 +190,24 @@ module Gru
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
         if rebalance_cluster?
-          result = host_running.to_i < max_workers_per_host(global_max,host_max) &&
-            host_running.to_i < @settings.max_worker_processes_per_host
+          result = host_running.to_i < max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i < host_max.to_i
         end
-          result && global_running.to_i < global_max.to_i
+        result && global_running.to_i < global_max.to_i &&
+          total_host_running < @settings.max_worker_processes_per_host
       end
 
       def expire_worker?(worker)
         host_running,global_running,host_max,global_max = worker_counts(worker)
         result = false
         if rebalance_cluster?
-          result = host_running.to_i > max_workers_per_host(global_max,host_max) ||
-            host_running.to_i > @settings.max_worker_processes_per_host
+          result = host_running.to_i > max_workers_per_host(global_max,host_max)
         else
           result = host_running.to_i > host_max.to_i
         end
-         (result || global_running.to_i > global_max.to_i) && host_running.to_i >= 0
+         (result || global_running.to_i > global_max.to_i) && host_running.to_i >= 0 ||
+           total_host_running > @settings.max_worker_processes_per_host
       end
 
       def worker_counts(worker)
@@ -230,6 +230,10 @@ module Gru
 
       def local_running_count(worker)
         send_message(:hget,host_workers_running_key,worker).to_i
+      end
+
+      def total_host_running
+        send_message(:hgetall,host_workers_running_key).values.reduce(0) {|sum, value| sum + value.to_i }
       end
 
       def gru_host_count
