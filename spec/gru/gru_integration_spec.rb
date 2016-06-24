@@ -485,4 +485,34 @@ xdescribe Gru do
       })
     end
   end
+
+  context "Remove Stale Workers" do
+    let(:new_settings) {
+      {
+        cluster_maximums: {
+        'foo_worker' => '3'
+        }
+      }
+    }
+
+    let(:adapter1) {
+      adapter1 = Gru::Adapters::RedisAdapter.new(Gru::Configuration.new(settings.clone))
+      allow(adapter1).to receive(:hostname).and_return('test1')
+      adapter1
+    }
+
+    let(:adapter2) {
+      adapter2 = Gru::Adapters::RedisAdapter.new(Gru::Configuration.new(new_settings.clone))
+      allow(adapter2).to receive(:hostname).and_return('test2')
+      adapter2
+    }
+
+    it "removes stale worker keys" do
+      test1 = Gru::WorkerManager.new(adapter1)
+      test2 = Gru::WorkerManager.new(adapter2)
+      test1.register_workers
+      test2.register_workers
+      expect(client.hgetall("GRU:default:default:global:max_workers").keys).to eq(['foo_worker'])
+    end
+  end
 end

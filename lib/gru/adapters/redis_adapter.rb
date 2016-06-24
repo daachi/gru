@@ -18,6 +18,7 @@ module Gru
         set_max_worker_counts(@settings.host_maximums)
         register_global_workers(@settings.cluster_maximums)
         set_max_global_worker_counts(@settings.cluster_maximums)
+        remove_stale_worker_entries
         update_heartbeat if manage_heartbeat?
       end
 
@@ -77,6 +78,13 @@ module Gru
           end
         end
         false
+      end
+
+      def remove_stale_worker_entries
+        stale_keys = max_global_workers.keys - @settings.cluster_maximums.keys
+        stale_keys.each do |key|
+          send_message(:hdel, global_max_worker_key, key)
+        end
       end
 
       private
