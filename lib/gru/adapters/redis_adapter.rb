@@ -172,8 +172,8 @@ module Gru
       end
 
       def adjust_workers(worker,amount)
-        lock_key = "#{gru_key}:#{worker}"
-        if send_message(:setnx,lock_key,Time.now.to_i)
+        lock_key = "#{gru_key}:locks:#{worker}"
+        if send_message(:set,lock_key,Time.now.to_i, { nx: true, px: 10000 })
           send_message(:hincrby,host_workers_running_key,worker,amount)
           send_message(:hincrby,global_workers_running_key,worker,amount)
           send_message(:del,lock_key)
